@@ -8,3 +8,12 @@ set AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxx
 ```bash
 aws configure list
 ```
+
+## Terraform command
+```bash
+terraform init
+terraform fmt
+terraform validate
+terraform plan
+terraform apply
+```
