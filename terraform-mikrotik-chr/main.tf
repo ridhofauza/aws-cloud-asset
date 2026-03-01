@@ -77,6 +77,7 @@ resource "aws_security_group" "mikrotik_lab" {
   }
 }
 
+/*
 resource "aws_vpc_security_group_ingress_rule" "allow_winbox" {
   security_group_id = aws_security_group.mikrotik_lab.id
   cidr_ipv4         = "0.0.0.0/0"
@@ -99,9 +100,15 @@ resource "aws_vpc_security_group_ingress_rule" "allow_ipsec_2" {
   ip_protocol       = "udp"
   from_port         = 4500
   to_port           = 4500
+}*/
+
+resource "aws_vpc_security_group_ingress_rule" "allow_all_inbound_ipv4" {
+  security_group_id = aws_security_group.mikrotik_lab.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1" # semantically equivalent to all ports
 }
 
-resource "aws_vpc_security_group_egress_rule" "allow_all_traffic_ipv4" {
+resource "aws_vpc_security_group_egress_rule" "allow_all_outbound_ipv4" {
   security_group_id = aws_security_group.mikrotik_lab.id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1" # semantically equivalent to all ports
@@ -116,7 +123,7 @@ resource "aws_instance" "mikrotik_chr_instance" {
   subnet_id                   = aws_subnet.public_subnet_mikrotik.id
   vpc_security_group_ids      = [aws_security_group.mikrotik_lab.id]
   associate_public_ip_address = true
-  iam_instance_profile        = "SSMInstanceProfile"
+  source_dest_check           = false
 
   tags = {
     Name = "Mikrotik CHR Lab"
