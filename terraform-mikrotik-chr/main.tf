@@ -136,14 +136,6 @@ resource "aws_vpc_security_group_ingress_rule" "allow_ipsec_2" {
   to_port           = 4500
 }
 
-resource "aws_vpc_security_group_ingress_rule" "sg_ingress_server" {
-  security_group_id            = aws_security_group.mikrotik_lab.id
-  referenced_security_group_id = aws_security_group.server_lab.id
-  ip_protocol                  = "-1"
-  from_port                    = 0
-  to_port                      = 0
-}
-
 resource "aws_vpc_security_group_egress_rule" "allow_all_outbound_ipv4" {
   security_group_id = aws_security_group.mikrotik_lab.id
   cidr_ipv4         = "0.0.0.0/0"
