@@ -1,0 +1,311 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: VPC with two public subnets and a LAMP stack instance deployed in each subnet.
+
+Parameters:
+  VPCCIDR:
+    Description: CIDR Block for CafeVPC
+    Type: String
+    Default: 10.0.0.0/16
+    AllowedValues:
+      - 10.0.0.0/16
+  KeyName:
+    Type: String
+    Description: Keyname for the keypair that Vocareum will use
+    Default: lab-key-pair
+  LabSessionId:
+    Type: String
+    Description: Unique Lab session id globally
+    Default: default-session-id
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+Resources:
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      Tags:
+        - Key: Name
+          Value: Cafe VPC
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    DependsOn: VPC
+  AttachGateway:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    DependsOn:
+      - VPC
+      - InternetGateway
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  PublicSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: Cafe Public Subnet 1
+  PublicSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select
+        - '1'
+        - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: Cafe Public Subnet 2
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    DependsOn:
+      - VPC
+      - AttachGateway
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Public Route Table
+  PublicRoute:
+    Type: 'AWS::EC2::Route'
+    DependsOn:
+      - VPC
+      - PublicRouteTable
+      - InternetGateway
+      - AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnet1RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    DependsOn:
+      - PublicRouteTable
+      - PublicSubnet1
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnet2RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    DependsOn:
+      - PublicRouteTable
+      - PublicSubnet2
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+  PrivateRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Private Route Table
+
+  ##############################
+  Instance1Address:
+    Type: AWS::EC2::EIP
+  Associate1:
+    Type: AWS::EC2::EIPAssociation
+    DependsOn: CafeInstance1
+    Properties:
+      InstanceId: !Ref 'CafeInstance1'
+      EIP: !Ref 'Instance1Address'
+  Instance2Address:
+    Type: AWS::EC2::EIP
+  Associate2:
+    Type: AWS::EC2::EIPAssociation
+    DependsOn: CafeInstance2
+    Properties:
+      InstanceId: !Ref 'CafeInstance2'
+      EIP: !Ref 'Instance2Address'
+  ##############################
+
+  CafeInstance1:
+    Type: 'AWS::EC2::Instance'
+    DependsOn:
+      - VPC
+      - CafeSecurityGroup
+      - PublicSubnet1
+    Properties:
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref CafeInstanceProfile
+      InstanceType: t3.micro
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: 'true'
+          SubnetId: !Ref PublicSubnet1
+          GroupSet:
+            - !Ref CafeSecurityGroup
+      SourceDestCheck: 'false'
+      Tags:
+        - Key: Name
+          Value: CafeInstance1
+
+      ########
+      UserData:
+        'Fn::Base64':
+          !Sub |
+            #!/bin/bash -ex
+            yum -y update
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+            yum -y install httpd mariadb-server wget
+            systemctl enable httpd
+            systemctl start httpd
+            systemctl enable mariadb
+            systemctl start mariadb
+            echo '<html><h1>Hello From Your Web Server!</h1></html>' > /var/www/html/index.html
+            find /var/www -type d -exec chmod 2775 {} \;
+            find /var/www -type f -exec chmod 0664 {} \;
+            echo "<?php phpinfo(); ?>" > /var/www/html/phpinfo.php
+            usermod -a -G apache ec2-user
+            chown -R ec2-user:apache /var/www
+            chmod 2775 /var/www
+            wget https://aws-tc-largeobjects.s3.us-west-2.amazonaws.com/CUR-TF-100-RSJAWS-1-23732/176-activity-JAWS-route53/s3/setup-v2.tar.gz
+            tar -zxvf setup-v2.tar.gz
+            wget https://aws-tc-largeobjects.s3.us-west-2.amazonaws.com/CUR-TF-100-RSJAWS-1-23732/176-activity-JAWS-route53/s3/db-v2.tar.gz
+            tar -zxvf db-v2.tar.gz
+            wget https://aws-tc-largeobjects.s3.us-west-2.amazonaws.com/CUR-TF-100-RSJAWS-1-23732/176-activity-JAWS-route53/s3/cafe-v2.tar.gz
+            tar -zxvf cafe-v2.tar.gz -C /var/www/html/
+            cd setup
+            ./set-app-parameters.sh
+            cd ../db/
+            ./set-root-password.sh
+            ./create-db.sh
+      ########
+
+  CafeInstance2:
+    Type: 'AWS::EC2::Instance'
+    DependsOn:
+      - VPC
+      - CafeSecurityGroup
+      - PublicSubnet2
+    Properties:
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref CafeInstanceProfile
+      InstanceType: t3.micro
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: 'true'
+          SubnetId: !Ref PublicSubnet2
+          GroupSet:
+            - !Ref CafeSecurityGroup
+      SourceDestCheck: 'false'
+      Tags:
+        - Key: Name
+          Value: CafeInstance2
+
+      ################
+      UserData:
+        'Fn::Base64':
+          !Sub |
+            #!/bin/bash -ex
+            yum -y update
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+            yum -y install httpd mariadb-server wget
+            systemctl enable httpd
+            systemctl start httpd
+            systemctl enable mariadb
+            systemctl start mariadb
+            echo '<html><h1>Hello From Your Web Server!</h1></html>' > /var/www/html/index.html
+            find /var/www -type d -exec chmod 2775 {} \;
+            find /var/www -type f -exec chmod 0664 {} \;
+            echo "<?php phpinfo(); ?>" > /var/www/html/phpinfo.php
+            usermod -a -G apache ec2-user
+            chown -R ec2-user:apache /var/www
+            chmod 2775 /var/www
+            wget https://aws-tc-largeobjects.s3.us-west-2.amazonaws.com/CUR-TF-100-RSJAWS-1-23732/176-activity-JAWS-route53/s3/setup-v2.tar.gz
+            tar -zxvf setup-v2.tar.gz
+            wget https://aws-tc-largeobjects.s3.us-west-2.amazonaws.com/CUR-TF-100-RSJAWS-1-23732/176-activity-JAWS-route53/s3/db-v2.tar.gz
+            tar -zxvf db-v2.tar.gz
+            wget https://aws-tc-largeobjects.s3.us-west-2.amazonaws.com/CUR-TF-100-RSJAWS-1-23732/176-activity-JAWS-route53/s3/cafe-v2.tar.gz
+            tar -zxvf cafe-v2.tar.gz -C /var/www/html/
+            cd setup
+            ./set-app-parameters.sh
+            cd ../db/
+            ./set-root-password.sh
+            ./create-db.sh
+      ################
+
+  IamPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: FullSsmAccess
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'ssm:*'
+            Resource: '*'
+      Roles:
+        - !Ref CafeRole
+  CafeRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+  CafeInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    DependsOn:
+      - CafeRole
+    Properties:
+      Path: /
+      Roles:
+        - !Ref CafeRole
+  CafeSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    DependsOn: VPC
+    Properties:
+      GroupDescription: Enable HTTP access
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: CafeSecurityGroup
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+  StudentHostedZone:
+    Type: 'AWS::Route53::HostedZone'
+    Properties:
+      Name: !Join
+        - .
+        - - !Ref LabSessionId
+          - vocareum
+          - training
+Outputs:
+  CafeInstance1IPAddress:
+    Description: IPv4 of CafeInstance1
+    Value: !GetAtt [CafeInstance1,PublicIp]
+  PrimaryWebSiteURL:
+    Description: URL of CafeInstance1
+    Value: !Join [ "/", [!GetAtt [CafeInstance1,PublicIp] , 'cafe']]
+  CafeInstance2IPAddress:
+    Description: IPv4 of CafeInstance2
+    Value: !GetAtt [CafeInstance2,PublicIp]
+  SecondaryWebsiteURL:
+    Description: URL of CafeInstance2
+    Value: !Join [ "/", [!GetAtt [CafeInstance2,PublicIp] , 'cafe']]
