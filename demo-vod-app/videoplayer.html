@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>DASH DRM Player (Axinom)</title>
+    <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+</head>
+
+<body>
+
+    <h2>DASH Player (Widevine + Axinom)</h2>
+
+    <div style="background-color: #000; width:800px;">
+        <video id="videoPlayer" controls width="800"></video>
+    </div>
+
+    <script>
+        const video = document.getElementById("videoPlayer");
+
+        // Get Values GUID
+        const params = new URLSearchParams(window.location.search);
+        const guid = params.get("guid");
+
+        // Get Axinom property
+        async function getVideoByGuid(guid) {
+            const res = await fetch(`http://localhost:3000/api/videos/${guid}`, {
+                method: "GET",
+                headers: { "Content-Type": "application/json" },
+            });
+
+            return await res.json();
+        };
+
+        async function generateToken(guid) {
+            const res = await fetch(`http://localhost:3000/api/license-token/${guid}`, {
+                method: "GET",
+                headers: { "Content-Type": "application/json" },
+            });
+
+            return await res.json();
+        }
+
+        async function getDrmSystemLicense(drmSystemType) {
+            const res = await fetch(`http://localhost:3000/api/license-url/${drmSystemType}`, {
+                method: "GET",
+                headers: { "Content-Type": "application/json" },
+            });
+
+            return await res.json();
+        }
+
+        async function initPlayer(guid) {
+            const videoData = await getVideoByGuid(guid);
+            console.log("videoData", videoData);
+
+            const MPD_URL = videoData.urlDash;
+            const LICENSE_SERVER = await getDrmSystemLicense("widevine");
+            const AXINOM_TOKEN = await generateToken(guid);
+            console.log("AXINOM_TOKEN", AXINOM_TOKEN);
+
+            // initiate video player
+            const player = dashjs.MediaPlayer().create();
+
+            player.initialize(video, MPD_URL, true);
+
+            player.setProtectionData({
+                "com.widevine.alpha": {
+                    serverURL: LICENSE_SERVER,
+                    httpRequestHeaders: {
+                        "X-AxDRM-Message": AXINOM_TOKEN
+                    }
+                }
+            });
+
+            // Optional debug
+            player.on(dashjs.MediaPlayer.events.ERROR, function (e) {
+                console.error("DASH error:", e);
+            });
+        }
+
+        initPlayer(guid);
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Upload Video to S3 via CloudFront</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 700px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+
+    .card {
+      border: 1px solid #ddd;
+      padding: 24px;
+      border-radius: 10px;
+    }
+
+    input[type="file"] {
+      margin-top: 10px;
+      margin-bottom: 20px;
+    }
+
+    button {
+      padding: 12px 20px;
+      cursor: pointer;
+    }
+
+    #result {
+      margin-top: 20px;
+      word-break: break-all;
+    }
+
+    textarea {
+      width: 100%;
+      height: 120px;
+      margin-top: 10px;
+    }
+
+    .success {
+      color: green;
+    }
+
+    .error {
+      color: red;
+    }
+
+    .loading {
+      color: blue;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>Upload Video to S3 using CloudFront Signed URL</h2>
+
+    <input
+      type="file"
+      id="videoFile"
+      accept="video/*"
+    />
+
+    <br />
+
+    <button onclick="uploadVideo()">
+      Upload Video
+    </button>
+
+    <div id="status"></div>
+
+    <div id="result">
+      <h3>CloudFront Signed URL</h3>
+
+      <textarea
+        id="signedUrlText"
+        readonly
+      ></textarea>
+    </div>
+  </div>
+
+  <script>
+    async function uploadVideo() {
+
+      const fileInput =
+        document.getElementById("videoFile");
+
+      const file = fileInput.files[0];
+
+      const status =
+        document.getElementById("status");
+
+      const signedUrlText =
+        document.getElementById("signedUrlText");
+
+      if (!file) {
+        alert("Please select a video file");
+        return;
+      }
+
+      try {
+
+        status.innerHTML =
+          '<p class="loading">Generating signed URL...</p>';
+
+        const objectKey =
+          `videos/${Date.now()}-${file.name}`;
+
+        const response = await fetch(
+          `http://localhost:8282/cloudfront-signed-url?key=${encodeURIComponent(objectKey)}`
+        );
+
+        const data = await response.json();
+
+        const signedUrl = data.url;
+
+        signedUrlText.value = signedUrl;
+
+        status.innerHTML =
+          '<p class="loading">Uploading video...</p>';
+
+        /*
+          Upload directly to CloudFront
+        */
+
+        const uploadResponse = await fetch(
+          signedUrl,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": file.type
+            },
+            body: file
+          }
+        );
+
+        if (!uploadResponse.ok) {
+          throw new Error(
+            `Upload failed: ${uploadResponse.status}`
+          );
+        }
+
+        status.innerHTML =
+          '<p class="success">Upload successful!</p>';
+
+      } catch (error) {
+
+        console.error(error);
+
+        status.innerHTML =
+          `<p class="error">${error.message}</p>`;
+      }
+    }
+  </script>
+
+</body>
+</html>

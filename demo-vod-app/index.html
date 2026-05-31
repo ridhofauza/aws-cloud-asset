@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Upload to S3</title>
+</head>
+
+<style>
+  table {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  th,
+  td {
+    border-bottom: 1px solid #ddd;
+    padding: 10px;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+</style>
+
+<body>
+
+  <h2>Upload File to S3</h2>
+
+  <div>
+    <input type="file" id="file" />
+    <button onclick="startUpload()">Upload</button>
+  </div>
+
+  <progress id="progressBar" value="0" max="100"></progress>
+
+  <hr>
+
+  <div style="margin-top: 15px">
+    <h2>Sync New Video Upload</h2>
+    <button onclick="syncVideo()">Sync Video</button>
+  </div>
+
+  <hr>
+
+  <h2 style="margin-top: 25px">List Video</h2>
+  <div id="container_video">
+    <table>
+      <thead>
+        <tr>
+          <th>No</th>
+          <th>Name</th>
+          <th>URL Stream</th>
+        </tr>
+      </thead>
+      <tbody id="table_body">
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    // get list video
+    async function listVideo() {
+      const res = await fetch("http://localhost:3000/api/videos", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const listVideo = await res.json();
+      console.log("listVideo", listVideo);
+
+      const tableBody = document.getElementById("table_body");
+
+      tableBody.innerHTML = "";
+
+      listVideo.forEach((item, index) => {
+        const row = document.createElement("tr");
+
+        row.innerHTML = `
+        <td>${index + 1}</td>
+        <td>${item.srcVideo}</td>
+        <td>
+          <a href="/videoplayer.html?guid=${item.guid}" target="_blank">Stream Video Player</a>
+        </td>
+      `;
+
+        tableBody.appendChild(row);
+      });
+
+    }
+
+    listVideo();
+
+    // upload video file
+    async function startUpload() {
+      const file = document.getElementById("file").files[0];
+
+      // 1. Start upload
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("http://localhost:3000/api/s3-upload", {
+        method: "POST",
+        body: formData
+      });
+
+      const { uploadId } = await res.json();
+
+      // 2. Listen to progress
+      const evtSource = new EventSource(`http://localhost:3000/api/progress/${uploadId}`);
+
+      evtSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.done) {
+          document.getElementById("progressBar").value = 100;
+          evtSource.close();
+          return;
+        }
+
+        if (data.loaded && data.total) {
+          const percent = (data.loaded / data.total) * 100;
+          document.getElementById("progressBar").value = percent;
+        }
+      };
+    }
+
+    async function syncVideo() {
+      const res = await fetch("http://localhost:3000/api/sync-video", {
+        method: "GET"
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      location.reload();
+    }
+  </script>
+
+</body>
+
+</html>
